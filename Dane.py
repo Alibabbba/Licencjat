@@ -24,10 +24,12 @@ from scipy.signal import periodogram, find_peaks
 def Ready_panda(txt_file, path):
     df = pd.read_csv(path + txt_file, delimiter = "\t",header = None, names=["Time","Spasm","Breath",'Hbeat'])
 
-    df.drop(df.head(2000).index, 
-        inplace = True)
-    df.drop(df.tail(2000).index, 
-        inplace = True)   
+    #usuwam 3 sekundy zeby nie bylo nan
+    df.drop(df.head(3000).index, inplace = True)
+    df.drop(df.tail(3000).index, inplace = True)   
+        
+    df['Hbeat'] = df['Hbeat'].astype(float, errors = 'raise')
+
     
     #peaks to indeksy wartosci lokalnych maximow (- dla odwrocenia grafu)
     peaks, _ = find_peaks(-df["Breath"].to_numpy(), distance = 1, prominence= 0.05)
@@ -51,14 +53,13 @@ def Show_sliced_graph(database ,start, how_much):
     heart_beat = sliced_df[sliced_df["Hbeat"] != 0]
     onset_breath = sliced_df[sliced_df["Onset_breath"] != 0]
 
-    fig, ax = plt.subplots(figsize=(4,4))
+    fig, ax = plt.subplots()
     sns.lineplot(x = "Time", y = "Breath", data = sliced_df, ax = ax)
     sns.scatterplot(x = "Time", y = "Breath", data = heart_beat, ax = ax, color= "r")
     sns.scatterplot(x = "Time", y = "Breath", data = onset_breath, ax = ax,
                     color= "g", s = 200, marker = "X")
         
     plt.show()
-    plt.close()
     return fig
     
 def Show_sliced_graph_movable(database):      
@@ -76,7 +77,7 @@ def Show_sliced_graph_movable(database):
 
         for i in range(10):    
             try:            
-                how_much = int(input("How long(int): ")) + start
+                how_much = int(input("How long(int): "))
                 break
             except:
                 print("Invalid number")
@@ -85,7 +86,6 @@ def Show_sliced_graph_movable(database):
                 continue
         
         Show_sliced_graph(database, start, how_much)
-        
         plt.close()
         
         val3 = input("Koniec? (y/n): ").lower().strip()
@@ -93,16 +93,10 @@ def Show_sliced_graph_movable(database):
             loop = False
 
 def Save_sliced_graph(database , start, how_much, name):
-    how_much = start + how_much
-    sliced_df = database[(database["Time"] < how_much) & (database["Time"] > start)]
-    heart_beat = sliced_df[sliced_df["Hbeat"] != 0]
-
-    fig, ax = plt.subplots(figsize=(4,4))
-    sns.lineplot(x = "Time", y = "Breath", data = sliced_df, ax = ax)
-    sns.scatterplot(x = "Time", y = "Breath", data = heart_beat, ax = ax, color= "r")
-    sns.scatterplot(x = "Time", y = "Breath_event_min", data = sliced_df, ax = ax, color = 'y')
     os.chdir("C:/Users/Mikołaj/Desktop/Licencjat/Pics")
-    plt.savefig(name + '.png')
+    fig  = Show_sliced_graph(database, start, how_much)
+    fig.suptitle(name)
+    fig.savefig(name + '.png')
     plt.close()
     
 def Save_all_sliced_graphs(path, start, how_much):
@@ -114,9 +108,9 @@ def Save_all_sliced_graphs(path, start, how_much):
 def isNaN(num):
     return num != num
 
-def Find_NaN(df):
+def Find_NaN(df,column):
     for index, row in df.iterrows():
-        if isNaN(row["Hbeat"]):
+        if isNaN(row[column]):
             print(index)
 
 def Frequency_mean(df_column,limit):
@@ -134,41 +128,20 @@ def Frequency_mean(df_column,limit):
     plt.xlabel('Hz')
     return None
         
-
 if __name__ == "__main__":
     
     path = "C:/Users/Mikołaj/Desktop/Licencjat/Dane/"
     txt_file = os.listdir(path)
     a = "Rob_1A_001Sel.txt"
-    df = Ready_panda(txt_file[18], path)
-
-
-    start = False
-
-    if start == True:
-        onset_timer = 0
-        for index, row in df.iterrows():
-            # IF event is not NaN
-            if isNaN(row["Breath_event_min"]) == False :
-                # onset_timer 
-                if onset_timer < row["Time"]:
-                    onset_timer = row["Time"] + 1.8
-                    
-                    df.loc[index + 2000, "Onset_breath"] = True                
-                    
-            print(index)
-            if index == 15000:
-                break
-    
-    
+    df = Ready_panda(txt_file[-11], path)
 
 
 
-    
-
-    # Show_sliced_graph(df ,10, 10)
-    Show_sliced_graph_movable(df)
-    # Data_info(df)    
+    # Show_sliced_graph(df , 100, 30)
+    # Show_sliced_graph_movable(df)
+    # Save_sliced_graph(df ,3, 80, txt_file[-1])    
+    # Save_all_sliced_graphs(path, 3, 80)
+    Data_info(df)    
     # Frequency_mean(df['Breath'],0.5)
 
 
