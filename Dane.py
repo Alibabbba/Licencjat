@@ -17,7 +17,7 @@ from scipy.signal import periodogram, find_peaks
 #   !Done! Periodogram usrednic
 #   !Done! Znalezc onset oddechu
 #   Znalezc oddech zasypiajacych osob
-#   
+#   Podzielic hbeat na klasy (onset == hbeat -> error 404)
 # =======================================
 
 
@@ -27,19 +27,62 @@ def Ready_panda(txt_file, path):
     #usuwam 3 sekundy zeby nie bylo nan
     df.drop(df.head(3000).index, inplace = True)
     df.drop(df.tail(3000).index, inplace = True)   
-        
+    
+    # this might break everything v
+    df.reset_index(drop=False, inplace=True)
+    
     df['Hbeat'] = df['Hbeat'].astype(float, errors = 'raise')
 
-    
     #peaks to indeksy wartosci lokalnych maximow (- dla odwrocenia grafu)
     peaks, _ = find_peaks(-df["Breath"].to_numpy(), distance = 1, prominence= 0.05)
     df["Onset_breath"] = 0
-    for peak in peaks:
+    df["Hbeat_onset_cluster"] = np.nan
+    time1 = df["Time"].iloc[0] 
+    time2 = df["Time"].iloc[peaks[0]]     
+    df = Rank_hbeat_onset(df, time1, time2)        
+    
+    for index, peak in enumerate(peaks):
         # podmienia wartosci 0 na wartosci peaks
         df.iloc[peak, df.columns.get_loc("Onset_breath")] = df["Breath"].iloc[peak]
+        
+        time1 = df["Time"].iloc[peak]     
+        if index == len(peaks) - 1:
+            time2 = df["Time"].iloc[-1]            
+        else:
+            time2 = df["Time"].iloc[peaks[index+1]] 
+        
+        df = Rank_hbeat_onset(df,  time1, time2)        
 
-    df.dropna() 
     return df
+
+def Rank_hbeat_onset(df, time1, time2):
+    relative_time = np.subtract(time2,time1)
+    hbet = df["Hbeat"].loc[(df["Hbeat"] !=0)  &
+                        (df["Time"] > time1) &
+                        (df["Time"] < time2) ]
+    hbet =  hbet.reset_index()
+    for i in range(len(hbet)):
+        hbeat_index = hbet["index"].iloc[i]
+        hbeat_time = df["Time"].iloc[hbeat_index] - time1
+        rank_percent = Percentage(relative_time,hbeat_time)
+        # df[6] = df["Hbeat_onset_cluster"]
+        if rank_percent <= 10:
+            df.iloc[[hbeat_index],[6]] = 1
+        elif rank_percent <= 25:                   
+            df.iloc[[hbeat_index],[6]] = 2
+        elif rank_percent <= 50:                 
+            df.iloc[[hbeat_index],[6]] = 3                    
+        elif rank_percent <= 75:                   
+            df.iloc[[hbeat_index],[6]] = 4
+        elif rank_percent <= 90:                   
+            df.iloc[[hbeat_index],[6]] = 5
+        else:
+            df.iloc[[hbeat_index],[6]] = 6     
+    return df
+    
+
+def Percentage(percent_of, looked_for):
+    return looked_for/percent_of * 100
 
 def Data_info(database):
     print(database.dtypes)
@@ -88,8 +131,8 @@ def Show_sliced_graph_movable(database):
         Show_sliced_graph(database, start, how_much)
         plt.close()
         
-        val3 = input("Koniec? (y/n): ").lower().strip()
-        if val3 == "y":
+        val = input("Koniec? (y/n): ").lower().strip()
+        if val == "y":
             loop = False
 
 def Save_sliced_graph(database , start, how_much, name):
@@ -133,15 +176,16 @@ if __name__ == "__main__":
     path = "C:/Users/Mikołaj/Desktop/Licencjat/Dane/"
     txt_file = os.listdir(path)
     a = "Rob_1A_001Sel.txt"
-    df = Ready_panda(txt_file[-11], path)
+    df = Ready_panda(txt_file[0], path)
 
-
-
-    # Show_sliced_graph(df , 100, 30)
+    df2 = df.loc[df["Hbeat"] != 0 ]
+    sns.histplot(data = df2, x = "Hbeat_onset_cluster")
+    
+    # Show_sliced_graph(df , 629 , 1)
     # Show_sliced_graph_movable(df)
     # Save_sliced_graph(df ,3, 80, txt_file[-1])    
     # Save_all_sliced_graphs(path, 3, 80)
-    Data_info(df)    
+    # Data_info(df)    
     # Frequency_mean(df['Breath'],0.5)
 
 
