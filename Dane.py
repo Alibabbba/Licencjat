@@ -12,7 +12,6 @@ import numpy as np
 
 from scipy.signal import periodogram, find_peaks
 
-
 # =======================================
 #   Różnica min/max oddechu
 #   !Done! Periodogram/Transformata furiera scipy.signal.periodogram/numpy.fft
@@ -38,27 +37,34 @@ def prepare_data(df, path):
 
     df['Hbeat'] = df['Hbeat'].astype(float, errors='raise')
 
-    # peaks to indeksy wartosci lokalnych maximow (- dla odwrocenia grafu)
-    df["Przyspieszenie"] = np.gradient(df["Breath"].to_numpy(), 2)
+    # df["Pierwsza_pochodna"] = np.gradient(df["Breath"].to_numpy())
 
-    df["Onset_breath"] = df["Breath"][df["Przyspieszenie"] > df["Przyspieszenie"].max() * 0.1]
-    return df
+    df["Pierwsza_pochodna"] = df["Breath"].diff() / 0.001
 
+    peaks, _ = find_peaks(-df["Breath"], distance=900, prominence=0.05)
 
-def prepare_data_find_peaks(df, path):
-    peaks, _ = find_peaks(-df["Przyspieszenie"])
-    # , distance = 900, prominence=0.05
-    peaks = sorted(peaks)
+    # print(peaks)
+    lst, poch_more3, poch_less3 = [],[],[]
+    for peak in peaks:
+        df_2 = df[peak: peak+200]
+        lst.append(df_2['Pierwsza_pochodna'].max())
+        if df_2[df_2['Pierwsza_pochodna'] > 0.2].empty:
+            poch_more3.append(1)
+        else:
+            poch_less3.append(1)
+    # print(lst)    
+    print(len(poch_more3), len(poch_less3))
+    print(sum(lst) / len(lst))
+   
 
     df["Onset_breath"] = 0
-    df["Hbeat_onset_cluster"] = np.nan
+    df["Hbeat_time"] = np.nan
     time1 = df["Time"].iloc[0]
     time2 = df["Time"].iloc[peaks[0]]
 
-    # df = Rank_hbeat_onset(df, time1, time2)
+    # df = rank_hbeat_onset(df, time1, time2)
 
     for index, peak in enumerate(peaks):
-        # podmienia wartosci 0 na wartosci peaks
         df.iloc[peak, df.columns.get_loc("Onset_breath")] = df["Breath"].iloc[peak]
 
         time1 = df["Time"].iloc[peak]
@@ -66,40 +72,42 @@ def prepare_data_find_peaks(df, path):
             time2 = df["Time"].iloc[-1]
         else:
             time2 = df["Time"].iloc[peaks[index+1]]
-
-        # df = Rank_hbeat_onset(df,  time1, time2)
+        # df = rank_hbeat_onset(df,  time1, time2)
     return df
 
 
-def Rank_hbeat_onset(df, begin, end):
+def rank_hbeat_onset(df, begin, end):
     ranks = []
     relative_time = np.subtract(end, begin)
     hbet = df.loc[(df["Hbeat"] != 0) & (df["Time"] > begin) &
                   (df["Time"] < end)]
-    for i in range(int(relative_time / 0.5)):
-        if relative_time % 0.5 == 0:
-            ranks.append(0.5*(i))
-        else:
-            ranks.append(0.5*(i))
-    for index, row in hbet.iterrows():
-        # print(f"row: {row["time"]  time: {}}")
-        for i, time in enumerate(ranks):
-            if ((row["Time"] - begin) < time) and ((row["Time"] - begin) >
-                                                   ranks[i-1]):
 
-                # sprawdzic czy to loc do index czy oryginal index
-                df.loc[index, "Hbeat_onset_cluster"] = time
+    if relative_time % 0.5 != 0:
+        time_range = int(relative_time / 0.5) + 1
+    else:
+        time_range = int(relative_time / 0.5)
+    for i in range(time_range):
+        ranks.append(0.5*(i+1))
+
+    for index, row in hbet.iterrows():
+        previous_time = 0
+        for time in ranks:
+            if ((row["Time"] - begin) <= time) and ((row["Time"] - begin) >
+                                                    previous_time):
+                df.loc[index, "Hbeat_time"] = time
+
+            previous_time = time
     return df
 
 
-def Data_info(database):
+def data_info(database):
     print(database.dtypes)
     print(database.describe())
     print(database.head())
     print(database.tail())
 
 
-def Show_sliced_graph(database, start, how_much):
+def show_sliced_graph(database, start, how_much):
     how_much = start + how_much
     sliced_df = database[(database["Time"] < how_much) & (database["Time"] >
                                                           start)]
@@ -112,12 +120,12 @@ def Show_sliced_graph(database, start, how_much):
                     ax=ax, color="r")
     sns.scatterplot(x="Time", y="Breath", data=onset_breath, ax=ax,
                     color="g", s=200, marker="X")
-
+    
     plt.show()
     return fig
 
 
-def Show_sliced_graph_movable(database):
+def show_sliced_graph_movable(database):
     loop = True
     while loop is True:
         for i in range(10):
@@ -140,7 +148,7 @@ def Show_sliced_graph_movable(database):
                     how_much = 10
                 continue
 
-        Show_sliced_graph(database, start, how_much)
+        show_sliced_graph(database, start, how_much)
         plt.close()
 
         val = input("Koniec? (y/n): ").lower().strip()
@@ -148,32 +156,24 @@ def Show_sliced_graph_movable(database):
             loop = False
 
 
-def Save_sliced_graph(database, start, how_much, name):
+def save_sliced_graph(graph, name):
     os.chdir("C:/Users/Mikołaj/Desktop/Licencjat/Pics")
-    fig = Show_sliced_graph(database, start, how_much)
-    fig.suptitle(name)
+    fig = graph
     fig.savefig(name + '.png')
     plt.close()
-
-
-def Save_all_sliced_graphs(path, start, how_much):
-    txt_file = os.listdir(path)
-    for file in txt_file:
-        my_database = prepare_data(file, path)
-        Save_sliced_graph(my_database, start, how_much, file)
 
 
 def isNaN(num):
     return num != num
 
 
-def Find_NaN(df, column):
+def find_NaN(df, column):
     for index, row in df.iterrows():
         if isNaN(row[column]):
             print(index)
 
 
-def Frequency_mean(df_column, limit):
+def frequency_mean(df_column, limit):
     asds = df_column.to_numpy()
     window_size = 10
     f, widmo = periodogram(asds, fs=1000)
@@ -191,39 +191,46 @@ def Frequency_mean(df_column, limit):
 
 if __name__ == "__main__":
     path = "C:/Users/Mikołaj/Desktop/Licencjat/Dane/"
-    txt_file = os.listdir(path)[0]
-    a = "Rob_1A_001Sel.txt"
+    txt_file_list = os.listdir(path)
+    txt_file_single = txt_file_list[1]
 
-    df = pd.read_csv(path + txt_file, delimiter="\t", header=None,
-                     names=["Time", "Spasm", "Breath", 'Hbeat'])
-    df = df.iloc[0:300000]
+    df = pd.read_csv(path + txt_file_single, delimiter="\t", header=None,
+                      names=["Time", "Spasm", "Breath", 'Hbeat'])
+
+    # df = df.iloc[:16000 + 16000]
     df = prepare_data(df, path)
+#%%
+    # for txt in txt_file_list:
+    #     df = pd.read_csv(path + txt, delimiter="\t", header=None,
+    #                       names=["Time", "Spasm", "Breath", 'Hbeat'])
+    #     df = prepare_data(df, path)
+    
+    # fig, ax = plt.subplots()
+    # sns.histplot(df, x="Hbeat_time",kde=True, ax=ax, binwidth = 0.5)
+    # ax.set_title(f'Onset count: {np.count_nonzero(df["Onset_breath"]) - 1}')
+    # fig.suptitle(txt_file_single)
+    #     save_sliced_graph(fig, txt)
 
     # name = txt_file[1] + ".xlsx"
     # with pd.ExcelWriter("C:/Users/Mikołaj/Desktop/Licencjat/Dane_obrobione/" + name) as writer:
     #     df[:500000].to_excel(writer, sheet_name='first 500k')
-    #     df[500000:1000000].to_excel(writer, sheet_name='second 500k')
-    #     df[1000000:-1].to_excel(writer, sheet_name='third 500k')
+    #     df[500000:1000000].to_excel(writer, sheet_nadddddddddddddddddddddd
+    
+    # frequency_mean(df['Breath'],0.5)
+    # show_sliced_graph(df, 5, 12)
+    # show_sliced_graph_movable(df)
+    # save_sliced_graph(df, 3, 80, txt_file[-1])
+    
+    df2 = df.iloc[5000:16000]
+    prog = 0.1
 
-    # df["Breath_diff"] = abs(df["Breath"].diff())
-    # print(df["Breath"].head())
-    # print(df["Breath_diff"].head())
-
-# %%
-    Show_sliced_graph(df, 4, 40)
-    # Show_sliced_graph_movable(df)
-    # Save_sliced_graph(df, 3, 80, txt_file[-1])
-    # Save_all_sliced_graphs(path, 3, 80)
-    # Data_info(df)
-    # Frequency_mean(df['Breath'],0.5)
-
-
-
-
-
-
-
-
-
-
-
+    fig, axs = plt.subplots(2)
+    sns.lineplot(x="Time", y="Breath", data=df2, ax=axs[0])
+    sns.lineplot(x="Time", y="Pierwsza_pochodna", data=df2, ax=axs[1])
+    a = df2.loc[df["Onset_breath"] != 0, "Time"].to_numpy()
+    granica = axs[1].axhline(y=prog, color = "g")
+    for i in axs:
+        for j in a:
+            onset = i.axvline(j, color="red")
+            onset_plus = i.axvline(j+0.4, color="black")
+    fig.legend([granica,onset,onset_plus],[str(prog)+" granica","Onset","Onset + 400"])
