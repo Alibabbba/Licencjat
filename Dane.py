@@ -12,28 +12,13 @@ import numpy as np
 import math
 
 from scipy.signal import periodogram, find_peaks
-
+from scipy.stats import entropy
 
 # =======================================
-#   Różnica min/max oddechu
-#   !Done! Periodogram/Transformata furiera scipy.signal.periodogram/numpy.fft
-#   !Done! Periodogram usrednic
-#   !Done! Znalezc onset oddechu
-#   Znalezc oddech zasypiajacych osob
-#   !DONE! Podzielic hbeat na klasy
-#   !DEL! opisać jak rozóżniałem ręcznie i dlaczego lub ucinać
-#   !DEL! Synchrogramy i korelogramy te drugie
-#   !Done! Zrobić kalsyfikacje
-#   !Done! entropia histogramów (równych co 10%)
-#   !Done! sprawdzić podział w bezwzględnym czasie (np co 0.5/0.4sec)
 
-#   cechy charakterystyczne: entropia, ilosc oddechow na minutę, frequency, ilosc R (maksymalna frequency)
-#   ilsc RR w pierwszej poltora sekundzie / ilosc oddechow, dodac z tytulu czy zdrowy czy chory (2a - nadcisnienie, 2b - bardzo chory)
-#   ilsc R na minute (suma / 20),
+#   cechy charakterystyczne: entropia, ilosc oddechow na minutę, frequency,
+#                            ilosc R (maksymalna frequency)
 
-#   powinny wyjsc 2 klastry
-
-#   opisac w preprocesingu ze jeden plik w był opuszczony
 # =======================================
 
 
@@ -83,7 +68,7 @@ def prepare_data(df):
 def rank_hbeat_onset(df, begin, end):
     ranks = []
     relative_time = np.subtract(end, begin)
-    hbet = df.loc[(df["Hbeat"] != 0) & (df["Time"] > begin) &
+    hbet = df.loc[(df["Spasm"] != 0) & (df["Time"] > begin) &
                   (df["Time"] < end)]
 
     if relative_time % 0.5 != 0:
@@ -114,7 +99,7 @@ def show_sliced_graph(database, start, how_much):
     how_much = start + how_much
     sliced_df = database[(database["Time"] < how_much) & (database["Time"] >
                                                           start)]
-    heart_beat = sliced_df[sliced_df["Hbeat"] != 0]
+    heart_beat = sliced_df[sliced_df["Spasm"] != 0]
     onset_breath = sliced_df[sliced_df["Onset_breath"] != 0]
 
     fig, ax = plt.subplots()
@@ -181,12 +166,14 @@ def onset_count(df):
     bars_height = df.Hbeat_time.dropna().to_numpy()
 
     fig, ax = plt.subplots()
-    sns.kdeplot(data=df, x="Hbeat_time", ax=ax, clip=(0.5, hist_size * 0.5))
+    # sns.hisplot(data=df, x="Hbeat_time", ax=ax, clip=(0.5, hist_size * 0.5))
     bar_values = ax.hist(bars_height, bins=hist_size,
                          density=True, histtype='bar', ec='black')[0]
     ent = -(bar_values*np.log(bar_values))
     ent = sum([0 if math.isnan(i) else i for i in ent])
-    ax.set_title(f'Onset count: {np.count_nonzero(df["Onset_breath"]) - 1}, Entropia: {round(ent, 4)}')
+    ax.set_title(f'Ada_1A_007Sel \nIlość wdechów: {np.count_nonzero(df["Onset_breath"]) - 1}, Entropia: {round(ent, 4)}')
+    ax.set_ylabel("Szansa na spazm serca")
+    ax.set_xlabel("Sekundy")
     return fig
 
 
@@ -196,7 +183,7 @@ def onset_count_entropy(df_Hbeat_time):
     hist = np.histogram(bars_height, bins=hist_size, density=True)[0]
     with np.errstate(divide='raise'):
         try:
-            ent = sum(-(hist*np.log(hist)))
+            ent = entropy(hist)
         except FloatingPointError:
             hist = [1 if i == 0 else i for i in hist]
             ent = sum(-(hist*np.log(hist)))
@@ -216,7 +203,7 @@ def plot_deriv_breath_onset(df, szukana_granica, min_sec, max_sec):
         for j in a:
             onset = i.axvline(j, color="red")
             onset_plus = i.axvline(j+0.4, color="black")
-    fig.legend([granica, onset, onset_plus], [str(prog)+" granica", "Onset", "Onset + 400"])
+#   fig.legend([granica, onset, onset_plus], [str(prog)+" granica", "Onset", "Onset + 400"])
     return fig
 
 
@@ -243,7 +230,7 @@ def frequency_mean(df_column, limit, plot=True):
 
 def prepare_outcome_df(path):
     outcome_df = pd.DataFrame(
-        columns=["nazwa", "entropia_onsety", "entropia_oddech",
+        columns=["nazwa", "entropia_hbeat", "entropia_oddech",
                  "frequency", "oddech_na_min", "R_do_2sec", "R_na_min", "klasa"])
     txt_file_list = os.listdir(path)
     for index, file_name in enumerate(txt_file_list):
@@ -256,13 +243,13 @@ def prepare_outcome_df(path):
         for i in range(0, len(widmo)-window_size, window_size):
             entropia_oddech_list.append(np.mean(widmo[i:i+window_size]))
 
-            entropia_onsety = onset_count_entropy(in_df["Hbeat_time"])
-        entropia_oddech = sum(-(entropia_oddech_list*np.log(entropia_oddech_list)))
+        entropia_onsety = onset_count_entropy(in_df["Hbeat_time"])
+        entropia_oddech = entropy(entropia_oddech_list)
         frequency = f[widmo.index(max(widmo))]
         oddechy_na_min = np.count_nonzero(in_df["Onset_breath"])
-        R_do_2sec = in_df.loc[(in_df["Hbeat"] != 0) & (in_df["Hbeat_time"] < 2), "Hbeat_time"].count()
+        R_do_2sec = in_df.loc[(in_df["Spasm"] != 0) & (in_df["Hbeat_time"] < 2), "Hbeat_time"].count()
         R_do_2sec = R_do_2sec / oddechy_na_min
-        R_na_min = in_df.loc[in_df["Hbeat"] != 0, "Hbeat"].size / 20
+        R_na_min = in_df.loc[in_df["Spasm"] != 0, "Hbeat"].size / 20
         oddechy_na_min = oddechy_na_min / 20
         klasa = file_name[4:6]
 
@@ -275,7 +262,7 @@ def prepare_outcome_df(path):
 
         outcome_df = outcome_df.append({
             "nazwa": name,
-            "entropia_onsety": entropia_onsety,
+            "entropia_hbeat": entropia_onsety,
             "entropia_oddech": entropia_oddech,
             "frequency": frequency,
             "oddech_na_min": oddechy_na_min,
@@ -288,16 +275,16 @@ def prepare_outcome_df(path):
 
 
 if __name__ == "__main__":
-    path = "C:/Users/Mikołaj/Desktop/Licencjat/Dane/"
+    path = "C:/Users/Mikołaj/Desktop/Licencjat/Dane_3_klasy/"
     out_path = "C:/Users/Mikołaj/Desktop/Licencjat/"
     txt_file_list = os.listdir(path)
-    txt_file_single = txt_file_list[3]
+    txt_file_single = txt_file_list[0]
 
     df = pd.read_csv(path + txt_file_single, delimiter="\t", header=None,
-                     names=["Time", "Spasm", "Breath", 'Hbeat'])
+                      names=["Time", "Spasm", "Breath", 'Hbeat'])
 
     # df = df.iloc[:16000 + 16000]
-    # df = prepare_data(df)
+    df = prepare_data(df)
 
     # widmo, f = frequency_mean(df['Breath'], 0.5, plot=False)
 
@@ -308,7 +295,7 @@ if __name__ == "__main__":
     # print(sum(-(lis*np.log(lis))))
 
     # print(onset_count_entropy(df["Hbeat_time"]))
-    # onset_count(df.Hbeat_time)
+    # onset_count(df)
     # frequency_mean(df['Breath'],0.5)
     # widmo, f, fig = frequency_mean(df['Breath'], 0.5, plot=True)
     # frequency = f[widmo.index(max(widmo))]
@@ -318,19 +305,24 @@ if __name__ == "__main__":
     # show_sliced_graph_movable(df)
     # save_sliced_graph(df, 3, 80, txt_file[-1])
     # data_info(df)
-    # plot_deriv_breath_onset(df, 0.1, 8, 19)
+    # fig = plot_deriv_breath_onset(df, 0.1, 11, 22)
+    # plt.title("as")
     # print(onset_count_entropy(df["Hbeat_time"]))
 
     # for txt in txt_file_list:
     #     df = pd.read_csv(path + txt, delimiter="\t", header=None,
     #                       names=["Time", "Spasm", "Breath", 'Hbeat'])
     #     df = prepare_data(df)
+        # plots = plot_deriv_breath_onset(df, 0.1, 8, 19)
+        # plots
     #     widmo, f, fig = frequency_mean(df['Breath'], 0.5, plot=True)
     #     frequency = f[widmo.index(max(widmo))]
 
     #     save_sliced_graph(fig, txt)
 
-    test_path = "C:/Users/Mikołaj/Desktop/Licencjat"
+    # test_path = "C:/Users/Mikołaj/Desktop/Licencjat"
     out_df = prepare_outcome_df(path)
-    out_df.to_csv(path_or_buf=out_path + "out_df", index=False)
+    out_df.to_csv(path_or_buf=out_path + "out_df_poprawa_3klasy", index=False)
+
     print(out_df)
+    # out_df.to_excel(out_path + "out_df_excel2.xlsx", index=False)

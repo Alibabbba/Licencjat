@@ -16,12 +16,19 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier, plot_tree
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, matthews_corrcoef
+from sklearn.metrics import multilabel_confusion_matrix, confusion_matrix, ConfusionMatrixDisplay, matthews_corrcoef, classification_report
 from sklearn.model_selection import cross_val_score
-
 from sklearn.decomposition import PCA
-from imblearn.over_sampling import RandomOverSampler
 from sklearn.model_selection import GridSearchCV
+
+from scipy import stats
+import scikit_posthocs as sp
+from imblearn.over_sampling import RandomOverSampler, SMOTE
+from collections import Counter
+
+# =============================================================================
+# 0 - 1A, 1 - 1B, 2 - 2A, 3 - 2B, 4 - 2C
+# =============================================================================
 
 
 def ready_data(df):
@@ -30,9 +37,16 @@ def ready_data(df):
     df_class = df["klasa"].astype("str")
     label_encoder = preprocessing.LabelEncoder()
     Y = label_encoder.fit_transform(df_class)
-
-    ros = RandomOverSampler()
+    # --------------------------
+    print(Counter(Y))
+    sampling_strategy = {0: 11, 1: 7, 2: 18, 3: 16, 4: 7}
+    ros = RandomOverSampler(sampling_strategy=sampling_strategy)
     X, Y = ros.fit_resample(X, Y)
+    # --------------------------
+    print(Counter(Y))
+    smote = SMOTE()
+    X, Y = smote.fit_resample(X, Y)
+    print(Counter(Y))
 
     scaler = preprocessing.StandardScaler()
     X_scaled = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
@@ -43,7 +57,7 @@ def ready_data(df):
 
 def ready_classification(df):
     X_normalized, Y = ready_data(df)
-    train_X, test_X, train_Y, test_Y = model_selection.train_test_split(X_normalized, Y)
+    train_X, test_X, train_Y, test_Y = model_selection.train_test_split(X_normalized, Y, stratify=Y, random_state=0)
     return train_X, test_X, train_Y, test_Y
 
 
@@ -62,7 +76,7 @@ def ready_clustering(df):
 def random_forest_class(X_train, X_test, Y_train, Y_test):
     randomforest = RandomForestClassifier()
     randomforest.fit(X_train, Y_train)
-    param_grid_forest = {'bootstrap': [False, True], 'n_estimators': [2, 4, 6],
+    param_grid_forest = {'bootstrap': [False, True], 'n_estimators': [100, 500, 1000],
                          'max_features': [2, 3, 4], 'max_leaf_nodes': [5, 50, 500, 5000]}
     # Y_pred_rfc = rfc.predict(X_test)
 
@@ -77,10 +91,10 @@ def random_forest_class(X_train, X_test, Y_train, Y_test):
     print(f"Training: imput features = {X_train.shape}, output class = {Y_train.shape}")
     print(f"Testing: imput features = {X_test.shape}, output class = {Y_test.shape}")
     score = cross_val(randomforest, df)
-    print(f"Cross Validation(RMSE) scores: {score}, Avreges: {score.mean()}")
+    print(f"Cross Validation(RMSE) scores: {score}, Avreges: {score.mean()} standard deviation: {score.std()}")
     plt.show()
     randomforest.fit(X_train, Y_train)
-    param_grid_forest = {'bootstrap': [False, True], 'n_estimators': [2, 4, 6],
+    param_grid_forest = {'bootstrap': [False, True], 'n_estimators': [100, 500, 1000],
                          'max_features': [2, 3, 4], 'max_leaf_nodes': [5, 50, 500, 5000]}
     plt.barh(columns_names, randomforest.feature_importances_)
     plt.title("Feature importance - RandomForest")
@@ -97,7 +111,7 @@ def kneighborsClass(X_train, X_test, Y_train, Y_test):
     print(f"Training: imput features = {X_train.shape}, output class = {Y_train.shape}")
     print(f"Testing: imput features = {X_test.shape}, output class = {Y_test.shape}")
     score = cross_val(knnClas, df)
-    print(f"Cross Validation(RMSE) scores: {score}, Avreges: {score.mean()}")
+    print(f"Cross Validation(RMSE) scores: {score}, Avreges: {score.mean()} standard deviation: {score.std()}")
     plt.title("Confusion Matrix - KNeighbors")
     plt.show()
     return y_pred, Y_test
@@ -112,7 +126,7 @@ def decisionTreeClass(X_train, X_test, Y_train, Y_test, tree_plot=False):
     print(f"Training: imput features = {X_train.shape}, output class = {Y_train.shape}")
     print(f"Testing: imput features = {X_test.shape}, output class = {Y_test.shape}")
     score = cross_val(decision_tree, df)
-    print(f"Cross Validation(RMSE) scores: {score}, Avreges: {score.mean()}")
+    print(f"Cross Validation(RMSE) scores: {score}, Avreges: {score.mean()} standard deviation: {score.std()}")
     plt.title("Confusion Matrix - DecisionTree")
     plt.show()
     if tree_plot is True:
@@ -130,7 +144,7 @@ def gaussian_naive(X_train, X_test, Y_train, Y_test):
     print(f"Training: imput features = {X_train.shape}, output class = {Y_train.shape}")
     print(f"Testing: imput features = {X_test.shape}, output class = {Y_test.shape}")
     score = cross_val(gnb, df)
-    print(f"Cross Validation(RMSE) scores: {score}, Avreges: {score.mean()}")
+    print(f"Cross Validation(RMSE) scores: {score}, Avreges: {score.mean()} standard deviation: {score.std()}")
     plt.title("Confusion Matrix - Gaussian Naive")
     plt.show()
     return Y_pred, Y_test
@@ -140,6 +154,7 @@ def disp_confusion_matrix(Y_test, Y_pred, labels=None):
     cm = confusion_matrix(Y_test, Y_pred)
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
     disp.plot()
+    return cm
 
 
 def cross_val(classifier, df):
@@ -154,39 +169,74 @@ def cross_val(classifier, df):
     return classifier_score
 
 
+def f1_coin(true, pred):
+    for bol in [true, pred]:
+        for i, x in enumerate(bol):
+            bol[i] = str(x)
+    mcm = multilabel_confusion_matrix(true, pred)
+    out_dict = {}
+    for label in set(true):
+        tn, fp, fn, tp = mcm[label].ravel()
+        q = (tp+fn)/(tp+tn+fp+fn)
+        f1_coin = round(2*q/(q+1), 2)
+        f1 = 2/(1/(tp/(tp+fp)) + 1/(tp/(tp+fn)))
+        f1_norm = round((f1-f1_coin)/(1-f1_coin), 2)
+        out_dict[str(label)] = f"f1_norm: {f1_norm}, f1 los: {f1_coin}, f1: {round(f1,2)}"
+
+    return out_dict
+
+
 if __name__ == "__main__":
     path = "C:/Users/Mikołaj/Desktop/Licencjat/"
-    df = pd.read_csv(path + "out_df")
+    df = pd.read_csv(path + "out_df_poprawa")
+    # df = pd.read_csv(path + "out_df_poprawa_3klasy")
+    #%%
 
-    labels = ["1A", "1B", "2A", "2B", "2C"]
-    columns_names = ['frequency', 'oddech_na_min', 'R_do_2sec',
+    labels = df["klasa"].unique().tolist()
+    print(labels)
+    columns_names = ['frequency', 'oddech_na_min', 'R_do_2sec', 
                      'R_na_min', 'entropia_oddech', 'entropia_onsety']
     X_train, X_test, Y_train, Y_test = ready_classification(df)
 
-    ready_clustering(df)
-    print("Random Forest Classifier")
-    rand_pred, rand_true = random_forest_class(X_train, X_test, Y_train, Y_test)
-    print("=============================")
-    print("KNeighbors Classifier")
-    kn_pred, kn_true = kneighborsClass(X_train, X_test, Y_train, Y_test)
-    print("=============================")
-    print("Decision Tree Classifier")
-    tree_pred, tree_true = decisionTreeClass(X_train, X_test, Y_train, Y_test)
-    print("=============================")
-    print("Naive Bayes Classifier")
-    gaus_pred, gaus_true = gaussian_naive(X_train, X_test, Y_train, Y_test)
 
-    mcc_dic = {
-        "Random Forest": matthews_corrcoef(rand_true, rand_pred),
-        "KNeighbors": matthews_corrcoef(kn_true, kn_pred),
-        "Decision Tree": matthews_corrcoef(tree_true, tree_pred),
-        "Naive Bayes": matthews_corrcoef(gaus_true, gaus_pred)
-        }
+    mcc_dicc = {}
+    for classifier in [random_forest_class, kneighborsClass, decisionTreeClass, gaussian_naive]:
+        print(classifier.__name__)
+        pred, true = classifier(X_train, X_test, Y_train, Y_test)
+        print(pred, true)
+        print(classification_report(true, pred, target_names=labels))
+        print(f1_coin(true, pred))
+        mcc_dicc[classifier.__name__] = round(matthews_corrcoef(true, pred), 3)
+        print("=============================")
 
-    print(mcc_dic)
-# %%
-    X_normalized, Y = ready_data(df)
-    X_normalized["klasa"] = Y
-    print(X_normalized)
+    print(mcc_dicc)
 
-    sns.scatterplot(x="R_na_min", y="oddech_na_min", data=X_normalized, hue="klasa")
+
+    # %%
+    # print(stats.kruskal(df["entropia_hbeat"], df["entropia_oddech"], df["R_do_2sec"],
+                        # df["R_na_min"]))
+
+    klasy = []
+    for klasa in df["klasa"].unique():
+        a = df.loc[df["klasa"] == klasa]
+        a = a.drop(["nazwa", "klasa"], axis=1)
+        klasy.append(a)
+    for cecha in klasy[0].columns:
+        print(cecha)
+        a1 = klasy[0][cecha].to_numpy()
+        a2 = klasy[1][cecha].to_numpy()
+        a3 = klasy[2][cecha].to_numpy()
+        a4 = klasy[3][cecha].to_numpy()
+        a5 = klasy[4][cecha].to_numpy()
+        stat, pval = stats.kruskal(a1, a2, a3, a4, a5)
+        print(f'Statistic: {stat} p-value: {pval}')
+        if pval < 0.1:            
+            grupa = [a1, a2, a3, a4, a5]
+            print(sp.posthoc_dunn(grupa))
+            print(df["klasa"].unique())
+
+
+    # X_normalized, Y = ready_data(df)
+    # X_normalized["klasa"] = Y
+    # print(X_normalized)
+    # sns.scatterplot(x="R_na_min", y="oddech_na_min", data=X_normalized, hue="klasa")
