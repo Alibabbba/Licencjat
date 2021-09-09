@@ -26,23 +26,24 @@ import scikit_posthocs as sp
 from imblearn.over_sampling import RandomOverSampler, SMOTE
 from collections import Counter
 
+from Dane import make_outcome_df
+
 # =============================================================================
 # 0 - 1A, 1 - 1B, 2 - 2A, 3 - 2B, 4 - 2C
 # =============================================================================
 
 
-def ready_data(df):
+def ready_data(df, five_classes: bool):
     df = df.drop(["nazwa"], axis=1)
     X = df.drop(["klasa"], axis=1)
     df_class = df["klasa"].astype("str")
     label_encoder = preprocessing.LabelEncoder()
     Y = label_encoder.fit_transform(df_class)
-    # --------------------------
-    print(Counter(Y))
-    sampling_strategy = {0: 11, 1: 7, 2: 18, 3: 16, 4: 7}
-    ros = RandomOverSampler(sampling_strategy=sampling_strategy)
-    X, Y = ros.fit_resample(X, Y)
-    # --------------------------
+    if five_classes == True :
+        print(Counter(Y))
+        sampling_strategy = {0: 11, 1: 7, 2: 18, 3: 16, 4: 7}
+        ros = RandomOverSampler(sampling_strategy=sampling_strategy)
+        X, Y = ros.fit_resample(X, Y)
     print(Counter(Y))
     smote = SMOTE()
     X, Y = smote.fit_resample(X, Y)
@@ -55,9 +56,9 @@ def ready_data(df):
     return X_normalized, Y
 
 
-def ready_classification(df):
-    X_normalized, Y = ready_data(df)
-    train_X, test_X, train_Y, test_Y = model_selection.train_test_split(X_normalized, Y, stratify=Y, random_state=0)
+def ready_classification(df, five_classes: bool):
+    X_normalized, Y = ready_data(df, five_classes)
+    train_X, test_X, train_Y, test_Y = model_selection.train_test_split(X_normalized, Y, stratify=Y)
     return train_X, test_X, train_Y, test_Y
 
 
@@ -73,12 +74,11 @@ def ready_clustering(df):
     return X_reduced
 
 
-def random_forest_class(X_train, X_test, Y_train, Y_test):
+def random_forest_class(X_train, X_test, Y_train, Y_test, labels, df):
     randomforest = RandomForestClassifier()
     randomforest.fit(X_train, Y_train)
     param_grid_forest = {'bootstrap': [False, True], 'n_estimators': [100, 500, 1000],
                          'max_features': [2, 3, 4], 'max_leaf_nodes': [5, 50, 500, 5000]}
-    # Y_pred_rfc = rfc.predict(X_test)
 
     grid = GridSearchCV(randomforest, param_grid_forest,
                         cv=10, scoring='neg_mean_squared_error')
@@ -93,16 +93,10 @@ def random_forest_class(X_train, X_test, Y_train, Y_test):
     score = cross_val(randomforest, df)
     print(f"Cross Validation(RMSE) scores: {score}, Avreges: {score.mean()} standard deviation: {score.std()}")
     plt.show()
-    randomforest.fit(X_train, Y_train)
-    param_grid_forest = {'bootstrap': [False, True], 'n_estimators': [100, 500, 1000],
-                         'max_features': [2, 3, 4], 'max_leaf_nodes': [5, 50, 500, 5000]}
-    plt.barh(columns_names, randomforest.feature_importances_)
-    plt.title("Feature importance - RandomForest")
-    plt.show()
     return grid_predictions, Y_test
 
 
-def kneighborsClass(X_train, X_test, Y_train, Y_test):
+def kneighborsClass(X_train, X_test, Y_train, Y_test, labels, df):
     knnClas = KNeighborsClassifier()
     knnClas.fit(X_train, Y_train)
     y_pred = knnClas.predict(X_test)
@@ -117,7 +111,7 @@ def kneighborsClass(X_train, X_test, Y_train, Y_test):
     return y_pred, Y_test
 
 
-def decisionTreeClass(X_train, X_test, Y_train, Y_test, tree_plot=False):
+def decisionTreeClass(X_train, X_test, Y_train, Y_test, labels, df, tree_plot=False):
     decision_tree = DecisionTreeClassifier(random_state=0)
     decision_tree = decision_tree.fit(X_train, Y_train)
     Y_pred = decision_tree.predict(X_test)
@@ -137,7 +131,7 @@ def decisionTreeClass(X_train, X_test, Y_train, Y_test, tree_plot=False):
     return Y_pred, Y_test
 
 
-def gaussian_naive(X_train, X_test, Y_train, Y_test):
+def gaussian_naive(X_train, X_test, Y_train, Y_test, labels, df):
     gnb = GaussianNB()
     Y_pred = gnb.fit(X_train, Y_train).predict(X_test)
     disp_confusion_matrix(Y_test, Y_pred, labels=labels)
@@ -186,18 +180,67 @@ def f1_coin(true, pred):
     return out_dict
 
 
+def kruskal_wallis(df):
+    klasy = []
+    for klasa in df["klasa"].unique():
+        a = df.loc[df["klasa"] == klasa]
+        a = a.drop(["nazwa", "klasa"], axis=1)
+        klasy.append(a)
+    for cecha in klasy[0].columns:
+        print(cecha)
+        a1 = klasy[0][cecha].to_numpy()
+        a2 = klasy[1][cecha].to_numpy()
+        a3 = klasy[2][cecha].to_numpy()
+        if len(df["klasa"].unique()) == 5:
+            a4 = klasy[3][cecha].to_numpy()
+            a5 = klasy[4][cecha].to_numpy()
+            stat, pval = stats.kruskal(a1, a2, a3, a4, a5)
+        else:
+            stat, pval = stats.kruskal(a1, a2, a3)
+        print(f'Statistic: {stat} p-value: {pval}')
+        if pval < 0.1 and len(df["klasa"].unique()) == 5:
+            grupa = [a1, a2, a3, a4, a5]
+            print(sp.posthoc_dunn(grupa))
+            print(df["klasa"].unique())
+        else:
+            grupa = [a1, a2, a3]
+            print(sp.posthoc_dunn(grupa))
+            print(df["klasa"].unique())
+
+
+def make_classification():
+    five_classes = input("Five classes?(Y/N)")
+    if five_classes == "Y":
+        five_classes = True
+    else:
+        five_classes = False
+    data_made = input("Is data complete?(Y/N) ")
+    if data_made == "Y":
+        path = input("Path to file: ")
+        df = pd.read_csv(path + "out_df_poprawa_3klasy")
+    else:
+        df = make_outcome_df()
+    labels = df["klasa"].unique().tolist()
+    X_train, X_test, Y_train, Y_test = ready_classification(df, five_classes)
+    mcc_dicc = {}
+    for classifier in [random_forest_class, kneighborsClass, decisionTreeClass, gaussian_naive]:
+        print(classifier.__name__)
+        pred, true = classifier(X_train, X_test, Y_train, Y_test, labels, df)
+        print(pred, true)
+        print(classification_report(true, pred, target_names=labels))
+        print(f1_coin(true, pred))
+        mcc_dicc[classifier.__name__] = round(matthews_corrcoef(true, pred), 3)
+        print("=============================")
+    print(mcc_dicc)
+
+
 if __name__ == "__main__":
     path = "C:/Users/Mikołaj/Desktop/Licencjat/"
-    df = pd.read_csv(path + "out_df_poprawa")
-    # df = pd.read_csv(path + "out_df_poprawa_3klasy")
-    #%%
-
+    # df = pd.read_csv(path + "out_df_poprawa")
+    df = pd.read_csv(path + "out_df_poprawa_3klasy")
     labels = df["klasa"].unique().tolist()
     print(labels)
-    columns_names = ['frequency', 'oddech_na_min', 'R_do_2sec', 
-                     'R_na_min', 'entropia_oddech', 'entropia_onsety']
-    X_train, X_test, Y_train, Y_test = ready_classification(df)
-
+    X_train, X_test, Y_train, Y_test = ready_classification(df, False)
 
     mcc_dicc = {}
     for classifier in [random_forest_class, kneighborsClass, decisionTreeClass, gaussian_naive]:
@@ -210,33 +253,3 @@ if __name__ == "__main__":
         print("=============================")
 
     print(mcc_dicc)
-
-
-    # %%
-    # print(stats.kruskal(df["entropia_hbeat"], df["entropia_oddech"], df["R_do_2sec"],
-                        # df["R_na_min"]))
-
-    klasy = []
-    for klasa in df["klasa"].unique():
-        a = df.loc[df["klasa"] == klasa]
-        a = a.drop(["nazwa", "klasa"], axis=1)
-        klasy.append(a)
-    for cecha in klasy[0].columns:
-        print(cecha)
-        a1 = klasy[0][cecha].to_numpy()
-        a2 = klasy[1][cecha].to_numpy()
-        a3 = klasy[2][cecha].to_numpy()
-        a4 = klasy[3][cecha].to_numpy()
-        a5 = klasy[4][cecha].to_numpy()
-        stat, pval = stats.kruskal(a1, a2, a3, a4, a5)
-        print(f'Statistic: {stat} p-value: {pval}')
-        if pval < 0.1:            
-            grupa = [a1, a2, a3, a4, a5]
-            print(sp.posthoc_dunn(grupa))
-            print(df["klasa"].unique())
-
-
-    # X_normalized, Y = ready_data(df)
-    # X_normalized["klasa"] = Y
-    # print(X_normalized)
-    # sns.scatterplot(x="R_na_min", y="oddech_na_min", data=X_normalized, hue="klasa")

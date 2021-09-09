@@ -150,17 +150,6 @@ def save_sliced_graph(graph, name):
     fig.savefig(name + '.png')
     plt.close()
 
-
-def isNaN(num):
-    return num != num
-
-
-def find_NaN(df, column):
-    for index, row in df.iterrows():
-        if isNaN(row[column]):
-            print(index)
-
-
 def onset_count(df):
     hist_size = len(pd.unique(df['Hbeat_time'])) - 1
     bars_height = df.Hbeat_time.dropna().to_numpy()
@@ -234,7 +223,7 @@ def prepare_outcome_df(path):
                  "frequency", "oddech_na_min", "R_do_2sec", "R_na_min", "klasa"])
     txt_file_list = os.listdir(path)
     for index, file_name in enumerate(txt_file_list):
-        in_df = pd.read_csv(path + file_name, delimiter="\t", header=None,
+        in_df = pd.read_csv(path + "/" + file_name, delimiter="\t", header=None,
                             names=["Time", "Spasm", "Breath", 'Hbeat'])
         in_df = prepare_data(in_df)
         widmo, f = frequency_mean(in_df['Breath'], 0.5, plot=False)
@@ -273,6 +262,16 @@ def prepare_outcome_df(path):
         print(f"Done {index+1} out of {len(txt_file_list)}")
     return outcome_df
 
+
+def make_outcome_df():
+    path = input("Enter path to data folder: ")
+    out_path = input("Enter output path to store data or 'no' to decline :")
+    out_df = prepare_outcome_df(path)
+    if out_path != "no":
+        out_name = input("outfile name: ")
+        out_df.to_csv(path_or_buf=out_path + out_name, index=False)
+    return out_df
+    
 
 if __name__ == "__main__":
     path = "C:/Users/Mikołaj/Desktop/Licencjat/Dane_3_klasy/"
@@ -321,8 +320,8 @@ if __name__ == "__main__":
     #     save_sliced_graph(fig, txt)
 
     # test_path = "C:/Users/Mikołaj/Desktop/Licencjat"
-    out_df = prepare_outcome_df(path)
-    out_df.to_csv(path_or_buf=out_path + "out_df_poprawa_3klasy", index=False)
+    # out_df = prepare_outcome_df(path)
+    # out_df.to_csv(path_or_buf=out_path + "out_df_poprawa_3klasy", index=False)
 
-    print(out_df)
+    # print(out_df)
     # out_df.to_excel(out_path + "out_df_excel2.xlsx", index=False)
